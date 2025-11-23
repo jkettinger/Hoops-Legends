@@ -1,3 +1,4 @@
+
 export enum GameMode {
   MENU = 'MENU',
   TEAM_SELECT = 'TEAM_SELECT',
@@ -67,8 +68,16 @@ export enum CareerPhase {
   COLLEGE_GAME = 'COLLEGE_GAME',
   COACH_TALK = 'COACH_TALK',
   DRAFT = 'DRAFT',
-  ROOKIE_SHOWCASE = 'ROOKIE_SHOWCASE', // Killis Challenge
+  SKILLS_CHALLENGE = 'SKILLS_CHALLENGE', // Replaces ROOKIE_SHOWCASE
   NBA_SEASON = 'NBA_SEASON'
+}
+
+export interface Lifestyle {
+  houseLevel: number; // 0=Streets, 1=Apartment, 2=Penthouse, 3=Mansion
+  hasWife: boolean;
+  relationshipProgress: number; // 0-100
+  foodLevel: number; // 0-100 (Energy)
+  dripLevel: number; // 0-100
 }
 
 export interface CareerSave {
@@ -85,5 +94,6 @@ export interface CareerSave {
     ppg: number;
     gamesPlayed: number;
   };
+  lifestyle: Lifestyle;
   playerData: Player;
 }

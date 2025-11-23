@@ -1,14 +1,20 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, Gamepad2, Map, Keyboard, X, Volume2, VolumeX, Mic2, User, PlayCircle, Briefcase } from 'lucide-react';
+import { Trophy, Gamepad2, Map, Keyboard, X, Volume2, VolumeX, Mic2, User, PlayCircle, Briefcase, ShoppingCart, Check, Shirt, Activity, Zap } from 'lucide-react';
 import { GameMode } from '../types';
 import { CONTROLS } from '../constants';
 
 interface MainMenuProps {
   onSelectMode: (mode: GameMode) => void;
   hasActivePlayoff?: boolean;
+  globalCoins: number;
+  inventory: string[];
+  onBuyItem: (item: string, cost: number) => boolean;
+  onSetJerseyColors: (colors: { primary: string, secondary: string }) => void;
+  customJerseyColors: { primary: string, secondary: string };
 }
 
-// AI-Style Rap/Hip-Hop Beats Playlist (More reliable sources)
+// AI-Style Rap/Hip-Hop Beats Playlist
 const PLAYLIST = [
   'https://cdn.pixabay.com/audio/2022/05/17/audio_174b69e357.mp3', // Cinematic Hip Hop
   'https://cdn.pixabay.com/audio/2023/01/26/audio_1e10b08535.mp3', // Drill/Trap Beat
@@ -16,29 +22,39 @@ const PLAYLIST = [
   'https://cdn.pixabay.com/audio/2022/11/22/audio_febc508520.mp3'  // Aggressive Phonk/Rap
 ];
 
-export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode, hasActivePlayoff }) => {
+const SHOP_ITEMS = [
+    { id: '6th_man', name: '6th Man', price: 400, desc: 'Boosts team stamina/depth.', icon: <User size={24}/> },
+    { id: 'power_aid', name: 'Power Aid', price: 250, desc: 'Boosts team speed by +5.', icon: <Zap size={24}/> },
+    { id: 'ankle_breaker', name: 'Ankle Breaker', price: 700, desc: 'Increases dribbling & shooting.', icon: <Activity size={24}/> },
+    { id: 'customize_jersey', name: 'Customize Jersey', price: 1000, desc: 'Unlock custom team colors.', icon: <Shirt size={24}/> },
+];
+
+export const MainMenu: React.FC<MainMenuProps> = ({ 
+    onSelectMode, 
+    hasActivePlayoff, 
+    globalCoins, 
+    inventory, 
+    onBuyItem, 
+    onSetJerseyColors, 
+    customJerseyColors 
+}) => {
   const [showControls, setShowControls] = useState(false);
+  const [showStore, setShowStore] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Cleanup old instance
     if (audioRef.current) {
         audioRef.current.pause();
     }
-
     const audio = new Audio();
     audio.volume = 0.4;
     audioRef.current = audio;
 
     const playTrack = (index: number) => {
         if (!audioRef.current) return;
-        
-        // Add timestamp to prevent caching issues with CDNs
         audioRef.current.src = `${PLAYLIST[index]}?t=${Date.now()}`;
-        
-        // Robust play attempt
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
             playPromise
@@ -53,20 +69,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode, hasActivePlayo
     audio.onended = () => {
         setCurrentTrackIndex(prev => (prev + 1) % PLAYLIST.length);
     };
-    
-    // Handle "no supported source" error gracefully by skipping to next track
     audio.onerror = () => {
-        console.warn(`Track ${currentTrackIndex} failed to load. Skipping...`);
-        // Introduce a small delay to prevent infinite loop if all fail
         setTimeout(() => {
              setCurrentTrackIndex(prev => (prev + 1) % PLAYLIST.length);
         }, 500);
     };
 
-    // Only attempt to play if we haven't explicitly paused/stopped
-    // On first load, browsers often block autoplay, so we might need user interaction.
     playTrack(currentTrackIndex);
-
     return () => {
         if (audioRef.current) {
             audioRef.current.pause();
@@ -95,11 +104,24 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode, hasActivePlayo
       <div className="absolute inset-0 opacity-20 bg-[url('https://images.unsplash.com/photo-1546519638-68e109498ffc?q=80&w=2090&auto=format&fit=crop')] bg-cover bg-center pointer-events-none"></div>
       <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-transparent via-black/50 to-black pointer-events-none"></div>
 
+      {/* Header with Coin Display */}
+      <div className="absolute top-6 right-8 z-20 flex gap-4">
+          <button 
+             onClick={() => setShowStore(true)}
+             className="flex items-center gap-2 bg-yellow-500 text-black px-4 py-2 rounded-full font-bold shadow-[0_0_15px_rgba(234,179,8,0.5)] hover:scale-105 transition-transform"
+          >
+              <div className="w-5 h-5 rounded-full bg-black/20 flex items-center justify-center text-xs font-mono">$</div>
+              <span>{globalCoins}</span>
+              <ShoppingCart size={18} />
+          </button>
+      </div>
+
       <div className="z-10 flex flex-col items-center mb-8">
           <h1 className="text-8xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-yellow-500 tracking-tighter drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)] font-[Teko] uppercase italic transform -skew-x-6">
             Hoops Legends
           </h1>
           <div className="text-gray-400 font-mono text-sm tracking-[0.5em] mt-2 uppercase">Street & Pro Basketball</div>
+          <div className="text-gray-500 font-mono text-xs tracking-widest mt-1 uppercase">by James Kettinger</div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 z-10 w-full max-w-6xl px-8">
@@ -165,43 +187,117 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode, hasActivePlayo
         </div>
       </div>
 
-      <div className="absolute bottom-8 text-gray-500 text-sm font-mono">
-        v1.3.3 | Powered by React & Tailwind
-      </div>
-
       {/* Controls Modal */}
       {showControls && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-fade-in-up">
            <div className="bg-slate-900 border-2 border-slate-600 p-8 rounded-2xl w-[90%] max-w-md shadow-2xl relative">
-              <button 
-                onClick={() => setShowControls(false)}
-                className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"
-              >
-                <X size={24} />
-              </button>
-
-              <h2 className="text-4xl font-[Teko] text-white uppercase text-center mb-6 tracking-widest border-b border-slate-700 pb-4">
-                Keyboard Controls
-              </h2>
-
+              <button onClick={() => setShowControls(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"><X size={24} /></button>
+              <h2 className="text-4xl font-[Teko] text-white uppercase text-center mb-6 tracking-widest border-b border-slate-700 pb-4">Keyboard Controls</h2>
               <div className="space-y-4">
                 {CONTROLS.map((c, i) => (
                   <div key={i} className="flex justify-between items-center">
-                    <div className="bg-slate-800 px-3 py-1 rounded border border-slate-700 text-yellow-500 font-mono font-bold text-sm">
-                      {c.key}
-                    </div>
-                    <div className="text-gray-300 font-[Teko] text-xl tracking-wide uppercase">
-                      {c.action}
-                    </div>
+                    <div className="bg-slate-800 px-3 py-1 rounded border border-slate-700 text-yellow-500 font-mono font-bold text-sm">{c.key}</div>
+                    <div className="text-gray-300 font-[Teko] text-xl tracking-wide uppercase">{c.action}</div>
                   </div>
                 ))}
               </div>
-
-              <div className="mt-8 text-center text-xs text-gray-600 font-mono">
-                 Press ESC or click X to close
-              </div>
            </div>
         </div>
+      )}
+
+      {/* Global Store Modal */}
+      {showStore && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md animate-fade-in-up">
+              <div className="bg-slate-900 border-2 border-yellow-600 p-8 rounded-2xl w-[90%] max-w-4xl shadow-2xl relative flex flex-col max-h-[90vh]">
+                  <button onClick={() => setShowStore(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"><X size={24} /></button>
+                  
+                  <div className="flex justify-between items-center border-b border-slate-700 pb-4 mb-6">
+                      <h2 className="text-4xl font-[Teko] text-yellow-500 uppercase tracking-widest">Coin Shop</h2>
+                      <div className="bg-slate-800 px-4 py-2 rounded-lg text-white font-mono flex items-center gap-2">
+                          Balance: <span className="text-yellow-400 font-bold">{globalCoins}</span> Coins
+                      </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto pr-2">
+                      {SHOP_ITEMS.map(item => {
+                          const isOwned = inventory.includes(item.id);
+                          return (
+                              <div key={item.id} className={`p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${isOwned ? 'border-green-500 bg-green-900/20' : 'border-slate-700 bg-slate-800 hover:border-yellow-500/50'}`}>
+                                  <div className={`p-4 rounded-full ${isOwned ? 'bg-green-600 text-white' : 'bg-slate-700 text-gray-400'}`}>
+                                      {isOwned ? <Check size={24} /> : item.icon}
+                                  </div>
+                                  <div className="flex-1">
+                                      <h3 className="text-2xl font-[Teko] uppercase text-white">{item.name}</h3>
+                                      <p className="text-xs text-gray-400 font-mono">{item.desc}</p>
+                                  </div>
+                                  <div>
+                                      {isOwned ? (
+                                          <span className="text-green-400 font-bold uppercase text-sm tracking-wider">OWNED</span>
+                                      ) : (
+                                          <button 
+                                            onClick={() => {
+                                                if (onBuyItem(item.id, item.price)) {
+                                                    // Success sound or feedback could go here
+                                                } else {
+                                                    alert("Not enough coins!");
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded uppercase text-sm"
+                                          >
+                                              Buy {item.price}
+                                          </button>
+                                      )}
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+
+                  {/* Jersey Customizer Section (Only if Owned) */}
+                  {inventory.includes('customize_jersey') && (
+                      <div className="mt-8 border-t border-slate-700 pt-6 animate-fade-in-up">
+                          <h3 className="text-2xl font-[Teko] text-white uppercase mb-4 flex items-center gap-2">
+                              <Shirt size={24} className="text-purple-400" /> Jersey Customizer
+                          </h3>
+                          <div className="grid grid-cols-2 gap-8">
+                              <div>
+                                  <label className="block text-xs text-gray-400 mb-2 uppercase">Primary Color</label>
+                                  <div className="flex gap-2 flex-wrap">
+                                      {['#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'].map(c => (
+                                          <button 
+                                            key={c}
+                                            onClick={() => onSetJerseyColors({...customJerseyColors, primary: c})}
+                                            className={`w-8 h-8 rounded-full border-2 ${customJerseyColors.primary === c ? 'border-white scale-110' : 'border-transparent'}`}
+                                            style={{ backgroundColor: c }}
+                                          />
+                                      ))}
+                                  </div>
+                              </div>
+                              <div>
+                                  <label className="block text-xs text-gray-400 mb-2 uppercase">Secondary Color</label>
+                                  <div className="flex gap-2 flex-wrap">
+                                      {['#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'].map(c => (
+                                          <button 
+                                            key={c}
+                                            onClick={() => onSetJerseyColors({...customJerseyColors, secondary: c})}
+                                            className={`w-8 h-8 rounded-full border-2 ${customJerseyColors.secondary === c ? 'border-white scale-110' : 'border-transparent'}`}
+                                            style={{ backgroundColor: c }}
+                                          />
+                                      ))}
+                                  </div>
+                              </div>
+                          </div>
+                          <div className="mt-4 p-4 bg-slate-800 rounded flex items-center justify-center">
+                              <div className="w-16 h-16 rounded border-2 border-white/20 flex items-center justify-center font-bold text-2xl shadow-lg"
+                                   style={{ backgroundColor: customJerseyColors.primary, color: customJerseyColors.secondary }}>
+                                   23
+                              </div>
+                              <span className="ml-4 text-gray-400 text-sm">Preview</span>
+                          </div>
+                      </div>
+                  )}
+              </div>
+          </div>
       )}
     </div>
   );
