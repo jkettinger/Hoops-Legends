@@ -1,15 +1,16 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Team, Player } from '../types';
-import { Trophy, List, LogOut, Play } from 'lucide-react';
+import { Trophy, List, LogOut, Play, FastForward, RefreshCw } from 'lucide-react';
 
 interface GameEngineProps {
   playerTeam: Team;
   cpuTeam: Team;
-  onGameOver: (winner: 'player' | 'cpu', scorePlayer: number, scoreCpu: number) => void;
+  onGameOver: (winner: 'player' | 'cpu', scorePlayer: number, scoreCpu: number, playerStats?: any) => void;
   onExit: () => void;
   isBlacktop: boolean;
   isPlayoff?: boolean;
   isPractice?: boolean;
+  isCollege?: boolean; // Visual change for MyCareer prologue
   practicePlayer?: Player;
 }
 
@@ -25,14 +26,14 @@ const HOOP_Y = COURT_HEIGHT / 2;
 const MOVE_SPEED_BASE = 3.5;
 const RIM_HEIGHT = 38; 
 
-export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onGameOver, onExit, isBlacktop, isPlayoff, isPractice, practicePlayer }) => {
+export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onGameOver, onExit, isBlacktop, isPlayoff, isPractice, isCollege, practicePlayer }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Game State
   const [playerScore, setPlayerScore] = useState(0);
   const [cpuScore, setCpuScore] = useState(0);
-  const [gameTime, setGameTime] = useState(isPlayoff ? 240 : 180); 
+  const [gameTime, setGameTime] = useState(isPlayoff ? 240 : (isCollege ? 120 : 180)); 
   const [commentary, setCommentary] = useState("Game Start!");
   const [gameState, setGameState] = useState<'playing' | 'menu' | 'boxscore'>('playing');
   
@@ -90,7 +91,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
     vx: 0, vy: 0, vz: 0,
     prevZ: 200,
     holder: null, 
-    state: 'loose', // loose, held, shot, passed
+    state: 'loose', // loose, held, shot, passed, scored
     lastShooter: null, // Track who shot for points
     wasShot: false // Track if loose ball is a rebound opportunity
   });
@@ -148,10 +149,36 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
         ballRef.current.y = p1.y;
         ballRef.current.z = 30;
         
-        announce(`Welcome to ${isBlacktop ? 'the Blacktop' : 'the Arena'}! ${playerTeam.name} versus ${cpuTeam.name}.`);
+        if (isCollege) {
+           announce(`NCAA Championship! ${playerTeam.name} versus ${cpuTeam.name}.`);
+        } else {
+           announce(`Welcome to ${isBlacktop ? 'the Blacktop' : 'the Arena'}! ${playerTeam.name} versus ${cpuTeam.name}.`);
+        }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const switchSides = () => {
+      // Toggle isUser for all players, swapping control
+      // First, determine which team is currently controlled
+      const userIsCurrentlyPlayerTeam = playersRef.current.some(p => p.teamId === 'player' && p.isUser);
+      
+      playersRef.current.forEach(p => {
+          p.isUser = false; // Reset all
+          p.state = 'idle';
+          p.vx = 0; p.vy = 0;
+      });
+
+      // Set new user
+      const newTeamId = userIsCurrentlyPlayerTeam ? 'cpu' : 'player';
+      const newPG = playersRef.current.find(p => p.teamId === newTeamId && p.position === 'PG') || playersRef.current.find(p => p.teamId === newTeamId);
+      
+      if (newPG) {
+          newPG.isUser = true;
+          announce(`Switched to ${newTeamId === 'player' ? playerTeam.name : cpuTeam.name}`);
+      }
+      setGameState('playing');
+  };
 
   // Input Listeners
   useEffect(() => {
@@ -168,7 +195,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
   // Touch Handlers
   const handleTouchStart = (e: React.TouchEvent) => {
     e.preventDefault(); 
-    Array.from(e.changedTouches).forEach(touch => {
+    (Array.from(e.changedTouches) as React.Touch[]).forEach(touch => {
       const x = touch.clientX;
       const y = touch.clientY;
       const width = window.innerWidth;
@@ -185,7 +212,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
 
   const handleTouchMove = (e: React.TouchEvent) => {
     e.preventDefault();
-    Array.from(e.changedTouches).forEach(touch => {
+    (Array.from(e.changedTouches) as React.Touch[]).forEach(touch => {
       if (touchState.current.joystickOrigin) {
         if (touch.clientX < window.innerWidth / 2) {
            touchState.current.joystickCurrent = { x: touch.clientX, y: touch.clientY };
@@ -208,7 +235,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     e.preventDefault();
-    Array.from(e.changedTouches).forEach(touch => {
+    (Array.from(e.changedTouches) as React.Touch[]).forEach(touch => {
       if (touch.clientX < window.innerWidth / 2) {
         touchState.current.joystickOrigin = null;
         touchState.current.joystickCurrent = null;
@@ -263,17 +290,26 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
       const players = playersRef.current;
       const now = Date.now();
 
-      // Find Active User Player
+      // Find Active User Player (Can be on either team now due to switch sides)
       let userPlayer = players.find(p => p.isUser);
+      // If we lost the user player (e.g. due to a bug), default to Team 1 PG
       if (!userPlayer) {
         userPlayer = players.find(p => p.teamId === 'player');
         if (userPlayer) userPlayer.isUser = true;
       }
+      
+      if (!userPlayer) return; // Safety
+
+      const userTeamId = userPlayer.teamId;
+
+      // IMPORTANT: Decrement user cooldown (since they are skipped in AI loop)
+      if (userPlayer && userPlayer.cooldown > 0) userPlayer.cooldown--;
 
       // --- INPUT HANDLING: SWITCHING (H) ---
       if (!isPractice && keys.current['h'] && now - lastSwitchTime.current > 300) {
         lastSwitchTime.current = now;
-        const teamPlayers = players.filter(p => p.teamId === 'player');
+        // Switch only among current team's players
+        const teamPlayers = players.filter(p => p.teamId === userTeamId);
         const currentIndex = teamPlayers.findIndex(p => p === userPlayer);
         const nextIndex = (currentIndex + 1) % teamPlayers.length;
         userPlayer.isUser = false;
@@ -282,9 +318,10 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
         announce("Switching to " + userPlayer.name.split(' ').pop());
       }
 
-      // --- INPUT HANDLING: PASSING (L) ---
-      if (!isPractice && keys.current['l'] && now - lastPassTime.current > 250) {
-        if (ball.holder === userPlayer) {
+      // --- INPUT HANDLING: PASSING (L or G) ---
+      const isPassInput = (keys.current['l'] || keys.current['g']);
+      if (!isPractice && isPassInput && now - lastPassTime.current > 250) {
+        if (ball.holder === userPlayer && userPlayer.state !== 'dunking') {
            lastPassTime.current = now;
            
            let idx = 0; let idy = 0;
@@ -296,7 +333,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
               idx = joystickVec.x; idy = joystickVec.y;
            }
 
-           const teammates = players.filter(p => p.teamId === 'player' && p !== userPlayer);
+           const teammates = players.filter(p => p.teamId === userTeamId && p !== userPlayer);
            let bestMate = null;
            let maxScore = -Infinity;
            const hasInput = idx !== 0 || idy !== 0;
@@ -344,37 +381,81 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
       }
 
       // --- USER MOVEMENT ---
-      let dx = 0;
-      let dy = 0;
-      const spd = (userPlayer.speed / 100) * MOVE_SPEED_BASE + 2; 
+      if (userPlayer.state !== 'dunking') {
+        let dx = 0;
+        let dy = 0;
+        const spd = (userPlayer.speed / 100) * MOVE_SPEED_BASE + 2; 
 
-      if (keys.current['w'] || keys.current['arrowup']) dy = -1;
-      if (keys.current['s'] || keys.current['arrowdown']) dy = 1;
-      if (keys.current['a'] || keys.current['arrowleft']) dx = -1;
-      if (keys.current['d'] || keys.current['arrowright']) dx = 1;
-      
-      if (Math.abs(joystickVec.x) > 0.1 || Math.abs(joystickVec.y) > 0.1) {
-        dx = joystickVec.x;
-        dy = joystickVec.y;
+        if (keys.current['w'] || keys.current['arrowup']) dy = -1;
+        if (keys.current['s'] || keys.current['arrowdown']) dy = 1;
+        if (keys.current['a'] || keys.current['arrowleft']) dx = -1;
+        if (keys.current['d'] || keys.current['arrowright']) dx = 1;
+        
+        if (Math.abs(joystickVec.x) > 0.1 || Math.abs(joystickVec.y) > 0.1) {
+          dx = joystickVec.x;
+          dy = joystickVec.y;
+        }
+
+        if (dx !== 0 || dy !== 0) {
+          const dist = Math.hypot(dx, dy);
+          const norm = dist > 1 ? 1 : dist;
+          const angle = Math.atan2(dy, dx);
+          userPlayer.x += Math.cos(angle) * spd * norm;
+          userPlayer.y += Math.sin(angle) * spd * norm;
+        }
+        
+        // Bounds Check
+        userPlayer.x = Math.max(PLAYER_RADIUS, Math.min(COURT_WIDTH - PLAYER_RADIUS, userPlayer.x));
+        userPlayer.y = Math.max(PLAYER_RADIUS, Math.min(COURT_HEIGHT - PLAYER_RADIUS, userPlayer.y));
       }
-
-      if (dx !== 0 || dy !== 0) {
-        const dist = Math.hypot(dx, dy);
-        const norm = dist > 1 ? 1 : dist;
-        const angle = Math.atan2(dy, dx);
-        userPlayer.x += Math.cos(angle) * spd * norm;
-        userPlayer.y += Math.sin(angle) * spd * norm;
-      }
-
-      userPlayer.x = Math.max(PLAYER_RADIUS, Math.min(COURT_WIDTH - PLAYER_RADIUS, userPlayer.x));
-      userPlayer.y = Math.max(PLAYER_RADIUS, Math.min(COURT_HEIGHT - PLAYER_RADIUS, userPlayer.y));
 
       // Actions
       const isShootingInput = keys.current['b'] || touchState.current.isShooting;
+      const isDunkInput = keys.current['x'];
       const isBlockingInput = keys.current['y'] || touchState.current.tapBlock;
 
       if (ball.holder === userPlayer) {
-        if (isShootingInput) {
+        const targetHoopX = (userPlayer.teamId === 'player' || isPractice) ? HOOP_X_RIGHT : HOOP_X_LEFT;
+        
+        // DUNK LOGIC
+        if (userPlayer.state === 'dunking') {
+             const dx = targetHoopX - userPlayer.x;
+             const dy = HOOP_Y - userPlayer.y;
+             const dist = Math.hypot(dx, dy);
+             
+             // Move fast
+             const speed = 15;
+             userPlayer.x += (dx / dist) * speed;
+             userPlayer.y += (dy / dist) * speed;
+             
+             // Finish Dunk
+             if (dist < 20) {
+                 ball.lastShooter = userPlayer; // Ensure credit
+                 scorePoint(userPlayer.teamId);
+                 
+                 // Reset
+                 userPlayer.state = 'idle';
+                 userPlayer.cooldown = 120; // 2 Seconds Cooldown
+                 ball.holder = null;
+                 ball.state = 'scored'; 
+                 ball.x = targetHoopX;
+                 ball.y = HOOP_Y;
+                 ball.z = RIM_HEIGHT - 5;
+                 ball.vx = (Math.random() - 0.5) * 5; // Scatter ball
+                 ball.vy = (Math.random() - 0.5) * 5;
+                 ball.vz = -6; 
+                 
+                 announce(["BOOM!", "SLAM DUNK!", "WITH AUTHORITY!"][Math.floor(Math.random()*3)], 'high');
+                 
+                 if (!isPractice) resetAfterScore(userPlayer.teamId);
+             }
+        } 
+        else if (isDunkInput && Math.hypot(userPlayer.x - targetHoopX, userPlayer.y - HOOP_Y) < 260) {
+            // Start Dunk
+            userPlayer.state = 'dunking';
+            announce("Takes it to the rack!", 'high');
+        }
+        else if (isShootingInput) {
           userPlayer.shotCharge += 1.5; 
           userPlayer.state = 'shooting';
         } else if (userPlayer.shotCharge > 0) {
@@ -386,7 +467,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
 
       if (isBlockingInput && ball.holder !== userPlayer) {
         userPlayer.state = 'blocking';
-      } else if (!isShootingInput && userPlayer.state !== 'stunned') {
+      } else if (!isShootingInput && userPlayer.state !== 'stunned' && userPlayer.state !== 'dunking') {
         userPlayer.state = 'idle';
       }
 
@@ -421,8 +502,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
                const distToBall = Math.hypot(p.x - ball.holder.x, p.y - ball.holder.y);
                if (distToBall < 50 && Math.random() < 0.02) {
                   p.state = 'blocking';
-                  if (Math.random() < (p.defense / 900)) {
-                     // SUCCESSFUL STEAL
+                  if (Math.random() < (p.defense / 900) && ball.holder.state !== 'dunking') {
+                     // SUCCESSFUL STEAL (Cannot steal from dunk)
                      ball.holder.state = 'stunned';
                      ball.holder.cooldown = 60;
                      ball.holder = null;
@@ -440,7 +521,8 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
                }
             } else {
                const sideX = p.teamId === 'player' ? HOOP_X_RIGHT - 200 : HOOP_X_LEFT + 200;
-               if (ball.holder === userPlayer && p.teamId === 'player') {
+               if (ball.holder === userPlayer && p.teamId === userTeamId) {
+                   // Space the floor for user
                   if (Math.hypot(p.x - userPlayer.x, p.y - userPlayer.y) < 150) {
                      moveTowards(p, p.x + (p.x - userPlayer.x), p.y + (p.y - userPlayer.y)); 
                   }
@@ -451,7 +533,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
       }
 
       // --- BALL PHYSICS ---
-      if (ball.state === 'loose' || ball.state === 'shot' || ball.state === 'passed') {
+      if (ball.state === 'loose' || ball.state === 'shot' || ball.state === 'passed' || ball.state === 'scored') {
         ball.prevZ = ball.z; 
         ball.x += ball.vx;
         ball.y += ball.vy;
@@ -470,7 +552,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
               const distToHoop = Math.hypot(ball.x - targetHoopX, ball.y - HOOP_Y);
               if (distToHoop < 11) {
                   scorePoint(ball.vx > 0 ? 'player' : 'cpu');
-                  ball.state = 'loose';
+                  ball.state = 'scored'; // Prevent pickup
                   ball.wasShot = false;
                   ball.z = 0; // Fall to ground
                   ball.vx = 0;
@@ -498,6 +580,17 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
            }
         } else if (ball.state === 'passed') {
            ball.z = 30;
+        } else if (ball.state === 'scored') {
+             // Ball on ground after score, wait for reset
+             if (ball.z > 0) {
+                 ball.z += ball.vz;
+                 ball.vz -= 0.7;
+             }
+             if (ball.z <= 0) {
+                 ball.z = 0;
+                 ball.vx = 0;
+                 ball.vy = 0;
+             }
         }
 
         if (ball.x < 0 || ball.x > COURT_WIDTH) ball.vx *= -1;
@@ -505,10 +598,16 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
       } else if (ball.holder) {
         ball.x = ball.holder.x + 12; 
         ball.y = ball.holder.y;
-        ball.z = 30 + Math.abs(Math.sin(Date.now() / 100) * 15); 
+        
+        if (ball.holder.state === 'dunking') {
+            ball.z = 45 + (Math.sin(Date.now() / 50) * 5); 
+        } else {
+            ball.z = 30 + Math.abs(Math.sin(Date.now() / 100) * 15); 
+        }
       }
 
       // --- COLLISIONS (Pickup) ---
+      // Cannot pickup if state is 'scored'
       if ((ball.state === 'loose' || ball.state === 'passed') && ball.z < 60) {
         players.forEach(p => {
           if (p.cooldown > 0) return;
@@ -527,7 +626,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
             ball.vx = 0;
             ball.vy = 0;
             
-            if (p.teamId === 'player' && !p.isUser) {
+            // Check logic for auto-switching user on defense if not holding ball? 
+            // Simplified: If user team picks up ball, switch user to holder if not already
+            if (p.teamId === userTeamId && !p.isUser) {
                players.forEach(pl => pl.isUser = false);
                p.isUser = true;
             }
@@ -641,10 +742,16 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
             ballRef.current.lastShooter = null;
             ballRef.current.wasShot = false;
 
-            if (possessionTeamId === 'player') {
-               playersRef.current.forEach(p => p.isUser = false);
-               pg.isUser = true;
+            // If User was controlling the other team, ensure they now control their PG on this team if they are "on" this team
+            // If switch sides is active, the user stays on their selected team.
+            // Check if the user is currently assigned to the possession team.
+            const userOnPossessionTeam = playersRef.current.some(p => p.teamId === possessionTeamId && p.isUser);
+            
+            if (userOnPossessionTeam) {
+                 playersRef.current.forEach(p => p.isUser = false);
+                 pg.isUser = true;
             }
+            
             announce("Ready to inbound.", 'low');
          }
        }, 2000);
@@ -652,6 +759,30 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
 
     const drawCrowd = (ctx: CanvasRenderingContext2D) => {
         if (isPractice) return; // Empty gym for practice
+        
+        if (isCollege) {
+            // College Crowd (Denser, Uniform Colors)
+            const dotSize = 5;
+            const spacing = 12;
+            const teamColor = playerTeam.primaryColor;
+            for(let x = -200; x < COURT_WIDTH + 200; x+=spacing) {
+                 for(let y = -200; y < -20; y+=spacing) {
+                     if (Math.random() > 0.9) continue;
+                     ctx.fillStyle = Math.random() > 0.3 ? teamColor : '#fff';
+                     ctx.beginPath(); ctx.arc(x, y, dotSize, 0, Math.PI*2); ctx.fill();
+                 }
+            }
+             // Bottom crowd
+            for(let x = -200; x < COURT_WIDTH + 200; x+=spacing) {
+                 for(let y = COURT_HEIGHT + 20; y < COURT_HEIGHT + 200; y+=spacing) {
+                     if (Math.random() > 0.9) continue;
+                     ctx.fillStyle = Math.random() > 0.3 ? teamColor : '#fff';
+                     ctx.beginPath(); ctx.arc(x, y, dotSize, 0, Math.PI*2); ctx.fill();
+                 }
+            }
+            return;
+        }
+
         const dotSize = 4;
         const spacing = 15;
         const drawRow = (startX: number, endX: number, startY: number, endY: number) => {
@@ -712,8 +843,21 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
       } else {
         drawCrowd(ctx);
         // Practice Mode Gym Floor
-        ctx.fillStyle = isPractice ? '#e6d5b8' : '#D2B48C'; 
+        if (isCollege) ctx.fillStyle = '#D6C4A0'; // Classic wood
+        else ctx.fillStyle = isPractice ? '#e6d5b8' : '#D2B48C'; 
+        
         ctx.fillRect(0, 0, COURT_WIDTH, COURT_HEIGHT);
+        
+        // College Logo Center
+        if (isCollege) {
+            ctx.save();
+            ctx.translate(COURT_WIDTH/2, COURT_HEIGHT/2);
+            ctx.fillStyle = playerTeam.primaryColor;
+            ctx.globalAlpha = 0.3;
+            ctx.beginPath(); ctx.arc(0,0, 100, 0, Math.PI*2); ctx.fill();
+            ctx.globalAlpha = 1.0;
+            ctx.restore();
+        }
       }
 
       // Court Lines
@@ -753,6 +897,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
         const team = p.teamId === 'player' ? playerTeam : cpuTeam;
         ctx.fillStyle = p.teamId === 'player' ? team.primaryColor : team.secondaryColor;
         
+        // Accessories Rendering
+        if (p.accessories?.includes('headband')) {
+             // Draw Headband on top (Generic)
+        }
+
         if (p.isUser) {
            ctx.strokeStyle = '#00FF00'; 
            ctx.lineWidth = 3;
@@ -766,12 +915,19 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
         ctx.fill();
         ctx.stroke();
 
+        // Jersey Text
         ctx.fillStyle = 'white';
         ctx.font = 'bold 10px Roboto';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const lastName = p.name.split(' ').pop();
-        ctx.fillText(lastName.substring(0, 7), p.x, p.y);
+        
+        if (isCollege && p.teamId === 'player') {
+             // In college prologue, just show number for generic feel
+             ctx.fillText(p.number, p.x, p.y);
+        } else {
+             const lastName = p.name.split(' ').pop();
+             ctx.fillText(lastName.substring(0, 7), p.x, p.y);
+        }
         
         if (ball.holder === p) {
            ctx.fillStyle = 'orange';
@@ -813,12 +969,15 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [playerTeam, cpuTeam, isBlacktop, joystickVec, isPlayoff, gameState, isPractice, practicePlayer]);
+  }, [playerTeam, cpuTeam, isBlacktop, joystickVec, isPlayoff, gameState, isPractice, practicePlayer, isCollege]);
 
   // Helper to trigger the exit flow
   const handleExitRequest = () => {
       setGameState('menu');
   };
+  
+  const isGameOver = gameTime <= 0 && !isPractice;
+  const winner = playerScore > cpuScore ? 'player' : 'cpu';
 
   return (
     <div 
@@ -884,9 +1043,44 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
              </div>
           </div>
           
+          {/* Practice Mode Subs Bar */}
+          {isPractice && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 pointer-events-auto flex gap-2 overflow-x-auto max-w-[90%] p-2 bg-slate-900/80 rounded-xl border border-slate-600">
+                {playerTeam.roster.map((p) => (
+                    <button 
+                        key={p.id}
+                        onClick={() => {
+                            // Find current entity and update
+                            playersRef.current = playersRef.current.map(ent => {
+                                if (ent.teamId === 'player') {
+                                    return { 
+                                        ...ent, 
+                                        name: p.name, 
+                                        number: p.number, 
+                                        shooting: p.shooting, 
+                                        speed: p.speed, 
+                                        defense: p.defense, 
+                                        rating: p.rating 
+                                    };
+                                }
+                                return ent;
+                            });
+                            announce(`Switched to ${p.name}`);
+                        }}
+                        className="flex flex-col items-center min-w-[50px] p-1 hover:bg-white/10 rounded"
+                    >
+                        <span className="text-xs text-gray-400">#{p.number}</span>
+                        <div className="w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs" style={{ backgroundColor: playerTeam.primaryColor, borderColor: 'white' }}>
+                            {p.position}
+                        </div>
+                    </button>
+                ))}
+            </div>
+          )}
+
           {!isPractice && (
             <div className="absolute bottom-4 left-4 text-white/50 text-xs font-mono bg-black/50 p-2 rounded">
-                H: Switch Player | L: Pass Ball
+                H: Switch Player | L/G: Pass Ball | X: Dunk
             </div>
           )}
       </div>
@@ -895,7 +1089,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
         onClick={handleExitRequest}
         className="absolute top-4 right-4 bg-red-600/80 hover:bg-red-700 text-white px-3 py-1 rounded text-sm font-bold z-30"
       >
-        QUIT
+        {isGameOver ? 'OVER' : 'QUIT'}
       </button>
 
       {/* POST GAME MENU OVERLAY */}
@@ -905,21 +1099,35 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
               {gameState === 'menu' && (
                   <div className="bg-slate-900 p-8 rounded-xl border-2 border-slate-600 text-center space-y-6 shadow-2xl min-w-[300px]">
                       <h2 className="text-5xl font-[Teko] uppercase text-yellow-400">
-                        {isPractice ? "Practice Paused" : (gameTime > 0 ? "Game Paused" : "Game Over")}
+                        {isPractice ? "Practice Paused" : (isGameOver ? "Game Over" : "Game Paused")}
                       </h2>
                       
                       {!isPractice && (
-                        <div className="text-2xl text-white font-mono mb-4">
+                        <div className="text-4xl text-white font-mono mb-4 font-bold">
                             {playerScore} - {cpuScore}
                         </div>
                       )}
                       
-                      <button 
-                        onClick={() => setGameState('playing')}
-                        className="w-full py-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold text-white uppercase tracking-wider flex items-center justify-center gap-2"
-                      >
-                        <Play size={20} fill="currentColor" /> Resume
-                      </button>
+                      {!isGameOver && (
+                        <>
+                            <button 
+                                onClick={() => setGameState('playing')}
+                                className="w-full py-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold text-white uppercase tracking-wider flex items-center justify-center gap-2"
+                            >
+                                <Play size={20} fill="currentColor" /> Resume
+                            </button>
+                            
+                            {/* SWITCH SIDES BUTTON */}
+                            {!isPractice && (
+                                <button 
+                                    onClick={switchSides}
+                                    className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-lg font-bold text-white uppercase tracking-wider flex items-center justify-center gap-2"
+                                >
+                                    <RefreshCw size={20} /> Switch Teams
+                                </button>
+                            )}
+                        </>
+                      )}
 
                       {!isPractice && (
                           <button 
@@ -930,12 +1138,36 @@ export const GameEngine: React.FC<GameEngineProps> = ({ playerTeam, cpuTeam, onG
                           </button>
                       )}
                       
-                      <button 
-                        onClick={() => onExit()}
-                        className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-lg font-bold text-white uppercase tracking-wider flex items-center justify-center gap-2"
-                      >
-                        <LogOut size={20} /> Exit to Main Menu
-                      </button>
+                      {isGameOver ? (
+                          isPlayoff && winner === 'player' ? (
+                              <button 
+                                onClick={() => onGameOver('player', playerScore, cpuScore)}
+                                className="w-full py-4 bg-yellow-500 hover:bg-yellow-400 rounded-lg font-bold text-black text-xl uppercase tracking-wider flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(234,179,8,0.5)] animate-pulse"
+                              >
+                                <Trophy size={24} fill="currentColor" /> CONTINUE PLAYOFFS
+                              </button>
+                          ) : (
+                              <button 
+                                onClick={() => {
+                                    // Collect Stats for MyCareer
+                                    const stats = playersRef.current
+                                        .filter(p => p.isUser || (p.teamId === 'player')) // Aggregate user team stats roughly
+                                        .map(p => p.stats);
+                                    onGameOver(winner, playerScore, cpuScore, stats);
+                                }}
+                                className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-lg font-bold text-white uppercase tracking-wider flex items-center justify-center gap-2"
+                              >
+                                <LogOut size={20} /> {isPlayoff ? "EXIT TO MENU" : "FINISH GAME"}
+                              </button>
+                          )
+                      ) : (
+                          <button 
+                            onClick={() => onExit()}
+                            className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-lg font-bold text-white uppercase tracking-wider flex items-center justify-center gap-2"
+                          >
+                            <LogOut size={20} /> Exit to Main Menu
+                          </button>
+                      )}
                   </div>
               )}
 

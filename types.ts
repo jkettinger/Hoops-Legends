@@ -4,7 +4,9 @@ export enum GameMode {
   GAME = 'GAME',
   PLAYOFFS = 'PLAYOFFS',
   BLACKTOP_SELECT = 'BLACKTOP_SELECT',
-  PRACTICE_SELECT = 'PRACTICE_SELECT'
+  PRACTICE_SELECT = 'PRACTICE_SELECT',
+  MY_CAREER_HUB = 'MY_CAREER_HUB',
+  MY_CAREER_CREATION = 'MY_CAREER_CREATION'
 }
 
 export enum Position {
@@ -25,6 +27,11 @@ export interface Player {
   shooting: number;
   defense: number;
   color?: string; // For on-court distinction
+  skinColor?: string;
+  hairColor?: string;
+  accessories?: string[];
+  isUser?: boolean;
+  teamId?: string;
 }
 
 export interface Team {
@@ -52,4 +59,31 @@ export interface BracketNode {
   team2: Team | null;
   winner: Team | null;
   score?: string;
+}
+
+export enum CareerPhase {
+  EMPTY = 'EMPTY',
+  CREATION = 'CREATION',
+  COLLEGE_GAME = 'COLLEGE_GAME',
+  COACH_TALK = 'COACH_TALK',
+  DRAFT = 'DRAFT',
+  ROOKIE_SHOWCASE = 'ROOKIE_SHOWCASE', // Killis Challenge
+  NBA_SEASON = 'NBA_SEASON'
+}
+
+export interface CareerSave {
+  id: number;
+  name: string;
+  height: string;
+  weight: string;
+  teamId: string;
+  coins: number;
+  phase: CareerPhase;
+  inventory: string[]; // 'headband', 'sleeves', 'city_jersey'
+  stats: {
+    rings: number;
+    ppg: number;
+    gamesPlayed: number;
+  };
+  playerData: Player;
 }

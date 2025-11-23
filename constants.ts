@@ -87,7 +87,8 @@ export const TEAMS: Team[] = [
 export const CONTROLS = [
   { key: 'WASD / Arrows', action: 'Move Player' },
   { key: 'Hold B', action: 'Charge Shot' },
-  { key: 'L Key', action: 'Pass Ball' },
+  { key: 'Hold X', action: 'Dunk (Near Hoop)' },
+  { key: 'L / G Key', action: 'Pass Ball' },
   { key: 'H Key', action: 'Switch Player' },
   { key: 'Hold Y', action: 'Block / Defense' },
 ];

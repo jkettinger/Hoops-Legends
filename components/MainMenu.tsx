@@ -1,68 +1,86 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, Gamepad2, Map, Keyboard, X, Volume2, VolumeX, Mic2, User } from 'lucide-react';
+import { Trophy, Gamepad2, Map, Keyboard, X, Volume2, VolumeX, Mic2, User, PlayCircle, Briefcase } from 'lucide-react';
 import { GameMode } from '../types';
 import { CONTROLS } from '../constants';
 
 interface MainMenuProps {
   onSelectMode: (mode: GameMode) => void;
+  hasActivePlayoff?: boolean;
 }
 
-// AI-Style Rap/Hip-Hop Beats Playlist
+// AI-Style Rap/Hip-Hop Beats Playlist (More reliable sources)
 const PLAYLIST = [
-  'https://cdn.pixabay.com/audio/2023/01/26/audio_1e10b08535.mp3', // Drill/Trap Beat
   'https://cdn.pixabay.com/audio/2022/05/17/audio_174b69e357.mp3', // Cinematic Hip Hop
+  'https://cdn.pixabay.com/audio/2023/01/26/audio_1e10b08535.mp3', // Drill/Trap Beat
   'https://cdn.pixabay.com/audio/2022/03/21/audio_3db65e01f7.mp3', // Old School Vibe
   'https://cdn.pixabay.com/audio/2022/11/22/audio_febc508520.mp3'  // Aggressive Phonk/Rap
 ];
 
-export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode }) => {
+export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode, hasActivePlayoff }) => {
   const [showControls, setShowControls] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    audioRef.current = new Audio(PLAYLIST[0]); 
-    audioRef.current.volume = 0.4;
-    
-    // Auto-play next track
-    audioRef.current.onended = () => {
-        setCurrentTrackIndex(prev => (prev + 1) % PLAYLIST.length);
-    };
-
-    const playPromise = audioRef.current.play();
-    if (playPromise !== undefined) {
-      playPromise
-        .then(() => setIsMusicPlaying(true))
-        .catch((error) => {
-          console.log("Autoplay prevented", error);
-          setIsMusicPlaying(false);
-        });
+    // Cleanup old instance
+    if (audioRef.current) {
+        audioRef.current.pause();
     }
 
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, []);
+    const audio = new Audio();
+    audio.volume = 0.4;
+    audioRef.current = audio;
 
-  // Handle Track Switching
-  useEffect(() => {
-      if (audioRef.current) {
-          const wasPlaying = !audioRef.current.paused;
-          audioRef.current.src = PLAYLIST[currentTrackIndex];
-          if (wasPlaying || isMusicPlaying) audioRef.current.play();
-      }
-  }, [currentTrackIndex, isMusicPlaying]);
+    const playTrack = (index: number) => {
+        if (!audioRef.current) return;
+        
+        // Add timestamp to prevent caching issues with CDNs
+        audioRef.current.src = `${PLAYLIST[index]}?t=${Date.now()}`;
+        
+        // Robust play attempt
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => setIsMusicPlaying(true))
+                .catch((e) => {
+                    console.warn("Audio autoplay blocked or failed:", e);
+                    setIsMusicPlaying(false);
+                });
+        }
+    };
+
+    audio.onended = () => {
+        setCurrentTrackIndex(prev => (prev + 1) % PLAYLIST.length);
+    };
+    
+    // Handle "no supported source" error gracefully by skipping to next track
+    audio.onerror = () => {
+        console.warn(`Track ${currentTrackIndex} failed to load. Skipping...`);
+        // Introduce a small delay to prevent infinite loop if all fail
+        setTimeout(() => {
+             setCurrentTrackIndex(prev => (prev + 1) % PLAYLIST.length);
+        }, 500);
+    };
+
+    // Only attempt to play if we haven't explicitly paused/stopped
+    // On first load, browsers often block autoplay, so we might need user interaction.
+    playTrack(currentTrackIndex);
+
+    return () => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+    };
+  }, [currentTrackIndex]);
 
   const toggleMusic = () => {
     if (!audioRef.current) return;
     if (isMusicPlaying) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play();
+      audioRef.current.play().catch(e => console.warn("Play failed", e));
     }
     setIsMusicPlaying(!isMusicPlaying);
   };
@@ -84,7 +102,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode }) => {
           <div className="text-gray-400 font-mono text-sm tracking-[0.5em] mt-2 uppercase">Street & Pro Basketball</div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 z-10 w-full max-w-5xl px-8">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 z-10 w-full max-w-6xl px-8">
         <MenuCard 
           title="Play Now" 
           icon={<Gamepad2 size={32} />} 
@@ -93,10 +111,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode }) => {
           onClick={() => onSelectMode(GameMode.TEAM_SELECT)}
         />
         <MenuCard 
-          title="Playoffs" 
-          icon={<Trophy size={32} />} 
-          desc="Tournament Mode"
-          color="yellow"
+          title="My Career" 
+          icon={<Briefcase size={32} />} 
+          desc="Rise to Stardom"
+          color="purple"
+          onClick={() => onSelectMode(GameMode.MY_CAREER_HUB)} 
+        />
+        <MenuCard 
+          title={hasActivePlayoff ? "Continue Playoffs" : "Playoffs"} 
+          icon={hasActivePlayoff ? <PlayCircle size={32} /> : <Trophy size={32} />} 
+          desc={hasActivePlayoff ? "Resume Finals Run" : "Tournament Mode"}
+          color={hasActivePlayoff ? "green" : "yellow"} 
           onClick={() => onSelectMode(GameMode.PLAYOFFS)}
         />
         <MenuCard 
@@ -110,7 +135,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode }) => {
           title="Practice" 
           icon={<User size={32} />} 
           desc="Freestyle Shootaround"
-          color="green"
+          color="cyan"
           onClick={() => onSelectMode(GameMode.PRACTICE_SELECT)} 
         />
       </div>
@@ -141,7 +166,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onSelectMode }) => {
       </div>
 
       <div className="absolute bottom-8 text-gray-500 text-sm font-mono">
-        v1.3.0 | Powered by React & Tailwind
+        v1.3.3 | Powered by React & Tailwind
       </div>
 
       {/* Controls Modal */}
@@ -187,7 +212,9 @@ const MenuCard: React.FC<{ title: string, icon: React.ReactNode, desc: string, c
     blue: "hover:shadow-blue-500/50 hover:border-blue-500",
     yellow: "hover:shadow-yellow-500/50 hover:border-yellow-500",
     red: "hover:shadow-red-500/50 hover:border-red-500",
-    green: "hover:shadow-green-500/50 hover:border-green-500"
+    green: "hover:shadow-green-500/50 hover:border-green-500",
+    cyan: "hover:shadow-cyan-500/50 hover:border-cyan-500",
+    purple: "hover:shadow-purple-500/50 hover:border-purple-500"
   };
 
   return (
