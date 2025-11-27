@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, Gamepad2, Map, Keyboard, X, Volume2, VolumeX, Mic2, User, PlayCircle, Briefcase, ShoppingCart, Check, Shirt, Activity, Zap } from 'lucide-react';
+import { Trophy, Gamepad2, Map, Keyboard, X, Volume2, VolumeX, Mic2, User, PlayCircle, Briefcase, ShoppingCart, Check, Shirt, Activity, Zap, Calendar } from 'lucide-react';
 import { GameMode } from '../types';
 import { CONTROLS } from '../constants';
 
@@ -124,13 +124,20 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           <div className="text-gray-500 font-mono text-xs tracking-widest mt-1 uppercase">by James Kettinger</div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 z-10 w-full max-w-6xl px-8">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 z-10 w-full max-w-7xl px-8">
         <MenuCard 
           title="Play Now" 
           icon={<Gamepad2 size={32} />} 
           desc="Quick 5v5 Match"
           color="blue"
           onClick={() => onSelectMode(GameMode.TEAM_SELECT)}
+        />
+        <MenuCard 
+          title="Team Game" 
+          icon={<Calendar size={32} />} 
+          desc="Season Mode"
+          color="orange"
+          onClick={() => onSelectMode(GameMode.SEASON_HUB)} 
         />
         <MenuCard 
           title="My Career" 
@@ -310,7 +317,8 @@ const MenuCard: React.FC<{ title: string, icon: React.ReactNode, desc: string, c
     red: "hover:shadow-red-500/50 hover:border-red-500",
     green: "hover:shadow-green-500/50 hover:border-green-500",
     cyan: "hover:shadow-cyan-500/50 hover:border-cyan-500",
-    purple: "hover:shadow-purple-500/50 hover:border-purple-500"
+    purple: "hover:shadow-purple-500/50 hover:border-purple-500",
+    orange: "hover:shadow-orange-500/50 hover:border-orange-500"
   };
 
   return (

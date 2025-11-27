@@ -1,4 +1,5 @@
 
+
 export enum GameMode {
   MENU = 'MENU',
   TEAM_SELECT = 'TEAM_SELECT',
@@ -7,7 +8,8 @@ export enum GameMode {
   BLACKTOP_SELECT = 'BLACKTOP_SELECT',
   PRACTICE_SELECT = 'PRACTICE_SELECT',
   MY_CAREER_HUB = 'MY_CAREER_HUB',
-  MY_CAREER_CREATION = 'MY_CAREER_CREATION'
+  MY_CAREER_CREATION = 'MY_CAREER_CREATION',
+  SEASON_HUB = 'SEASON_HUB'
 }
 
 export enum Position {
@@ -75,6 +77,7 @@ export enum CareerPhase {
 export interface Lifestyle {
   houseLevel: number; // 0=Streets, 1=Apartment, 2=Penthouse, 3=Mansion
   hasWife: boolean;
+  partnerName?: string;
   relationshipProgress: number; // 0-100
   foodLevel: number; // 0-100 (Energy)
   dripLevel: number; // 0-100
@@ -96,4 +99,11 @@ export interface CareerSave {
   };
   lifestyle: Lifestyle;
   playerData: Player;
+}
+
+export interface SeasonState {
+    userTeamId: string;
+    wins: Record<string, number>;
+    losses: Record<string, number>;
+    gamesPlayed: number;
 }

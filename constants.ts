@@ -1,3 +1,4 @@
+
 import { Team, Position } from './types';
 
 // Helper to create players quickly
@@ -79,6 +80,51 @@ export const TEAMS: Team[] = [
       createPlayer('gsw3', 'Andrew Wiggins', '22', Position.SF, 81, 78, 82, 85),
       createPlayer('gsw4', 'Jonathan Kuminga', '00', Position.PF, 80, 75, 78, 92),
       createPlayer('gsw5', 'Buddy Hield', '7', Position.SG, 79, 90, 65, 80),
+    ]
+  },
+  {
+    id: 'celtics',
+    city: 'Boston',
+    name: 'Celtics',
+    abbreviation: 'BOS',
+    primaryColor: '#007A33',
+    secondaryColor: '#BA9653',
+    roster: [
+      createPlayer('bos1', 'Jayson Tatum', '0', Position.SF, 96, 88, 85, 84),
+      createPlayer('bos2', 'Jaylen Brown', '7', Position.SG, 93, 85, 88, 88),
+      createPlayer('bos3', 'Kristaps Porzingis', '8', Position.C, 87, 85, 88, 70),
+      createPlayer('bos4', 'Jrue Holiday', '4', Position.PG, 86, 80, 95, 82),
+      createPlayer('bos5', 'Derrick White', '9', Position.SG, 85, 84, 92, 80),
+    ]
+  },
+  {
+    id: 'thunder',
+    city: 'Oklahoma City',
+    name: 'Thunder',
+    abbreviation: 'OKC',
+    primaryColor: '#007AC1',
+    secondaryColor: '#EF3B24',
+    roster: [
+      createPlayer('okc1', 'S. Gilgeous-Alexander', '2', Position.PG, 97, 90, 88, 92),
+      createPlayer('okc2', 'Chet Holmgren', '7', Position.C, 88, 82, 94, 75),
+      createPlayer('okc3', 'Jalen Williams', '8', Position.PF, 86, 80, 80, 85),
+      createPlayer('okc4', 'Luguentz Dort', '5', Position.SF, 80, 75, 90, 82),
+      createPlayer('okc5', 'Isaiah Hartenstein', '55', Position.C, 79, 60, 85, 65),
+    ]
+  },
+  {
+    id: 'knicks',
+    city: 'New York',
+    name: 'Knicks',
+    abbreviation: 'NYK',
+    primaryColor: '#F58426',
+    secondaryColor: '#006BB6',
+    roster: [
+      createPlayer('nyk1', 'Jalen Brunson', '11', Position.PG, 93, 88, 70, 86),
+      createPlayer('nyk2', 'Karl-Anthony Towns', '32', Position.C, 91, 90, 80, 72),
+      createPlayer('nyk3', 'Mikal Bridges', '25', Position.SF, 86, 85, 90, 84),
+      createPlayer('nyk4', 'OG Anunoby', '8', Position.PF, 84, 80, 92, 80),
+      createPlayer('nyk5', 'Josh Hart', '3', Position.SG, 81, 75, 85, 82),
     ]
   }
 ];

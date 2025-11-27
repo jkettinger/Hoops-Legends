@@ -6,7 +6,8 @@ import { GameEngine } from './components/GameEngine';
 import { PlayoffBracket } from './components/PlayoffBracket';
 import { MyCareer } from './components/MyCareer';
 import { BlacktopSetup } from './components/BlacktopSetup';
-import { GameMode, Team, Player, CareerSave, CareerPhase, Position } from './types';
+import { SeasonMode } from './components/SeasonMode';
+import { GameMode, Team, Player, CareerSave, CareerPhase, SeasonState } from './types';
 import { TEAMS } from './constants';
 
 interface Matchup {
@@ -31,9 +32,13 @@ const loadState = <T,>(key: string, fallback: T): T => {
 
 const App: React.FC = () => {
   const [currentMode, setCurrentMode] = useState<GameMode>(GameMode.MENU);
+  const [nextMode, setNextMode] = useState<GameMode>(GameMode.GAME); // Used for Team Select routing
+
+  // Gameplay State
   const [selectedTeam, setSelectedTeam] = useState<Team>(TEAMS[0]);
   const [opponentTeam, setOpponentTeam] = useState<Team>(TEAMS[1]);
   const [isBlacktopMode, setIsBlacktopMode] = useState(false);
+  const [isPlayoffGame, setIsPlayoffGame] = useState(false);
   
   // Global Economy & Inventory (Persisted)
   const [globalCoins, setGlobalCoins] = useState(() => loadState('hoops_coins', 100));
@@ -47,7 +52,9 @@ const App: React.FC = () => {
   const [playoffMatches, setPlayoffMatches] = useState<Matchup[]>(() => loadState('hoops_playoff_matches', []));
   const [playoffUserTeam, setPlayoffUserTeam] = useState<Team | null>(() => loadState('hoops_playoff_user_team', null));
   const [currentMatchId, setCurrentMatchId] = useState<string | null>(null);
-  const [nextMode, setNextMode] = useState<GameMode>(GameMode.GAME);
+
+  // Season Mode State (Persisted)
+  const [seasonState, setSeasonState] = useState<SeasonState>(() => loadState('hoops_season_state', { userTeamId: TEAMS[0].id, wins: {}, losses: {}, gamesPlayed: 0 }));
 
   // MyCareer State (Persisted)
   const defaultCareerSaves: CareerSave[] = [
@@ -60,121 +67,269 @@ const App: React.FC = () => {
   ];
   const [careerSaves, setCareerSaves] = useState<CareerSave[]>(() => loadState('hoops_career_saves', defaultCareerSaves));
   const [activeCareerSave, setActiveCareerSave] = useState<CareerSave | null>(null);
-  const [currentWager, setCurrentWager] = useState(0);
+  const [isCareerGame, setIsCareerGame] = useState(false);
+  const [isCollegeGame, setIsCollegeGame] = useState(false);
+  const [isWagerGame, setIsWagerGame] = useState(false);
+  const [wagerAmount, setWagerAmount] = useState(0);
 
   // --- PERSISTENCE EFFECTS ---
-  useEffect(() => { localStorage.setItem('hoops_coins', JSON.stringify(globalCoins)); }, [globalCoins]);
-  useEffect(() => { localStorage.setItem('hoops_inventory', JSON.stringify(globalInventory)); }, [globalInventory]);
-  useEffect(() => { localStorage.setItem('hoops_custom_jersey', JSON.stringify(customJerseyColors)); }, [customJerseyColors]);
-  useEffect(() => { localStorage.setItem('hoops_career_saves', JSON.stringify(careerSaves)); }, [careerSaves]);
-  useEffect(() => { localStorage.setItem('hoops_playoff_matches', JSON.stringify(playoffMatches)); }, [playoffMatches]);
-  useEffect(() => { localStorage.setItem('hoops_playoff_user_team', JSON.stringify(playoffUserTeam)); }, [playoffUserTeam]);
+  useEffect(() => localStorage.setItem('hoops_coins', JSON.stringify(globalCoins)), [globalCoins]);
+  useEffect(() => localStorage.setItem('hoops_inventory', JSON.stringify(globalInventory)), [globalInventory]);
+  useEffect(() => localStorage.setItem('hoops_custom_jersey', JSON.stringify(customJerseyColors)), [customJerseyColors]);
+  useEffect(() => localStorage.setItem('hoops_playoff_matches', JSON.stringify(playoffMatches)), [playoffMatches]);
+  useEffect(() => localStorage.setItem('hoops_playoff_user_team', JSON.stringify(playoffUserTeam)), [playoffUserTeam]);
+  useEffect(() => localStorage.setItem('hoops_season_state', JSON.stringify(seasonState)), [seasonState]);
+  useEffect(() => localStorage.setItem('hoops_career_saves', JSON.stringify(careerSaves)), [careerSaves]);
 
+  // --- HANDLERS ---
+
+  const handleModeSelect = (mode: GameMode) => {
+    if (mode === GameMode.PLAYOFFS) {
+        if (playoffMatches.length > 0 && playoffUserTeam) {
+            // Resume
+            setCurrentMode(GameMode.PLAYOFFS);
+        } else {
+            // New Playoffs -> Select Team first
+            setNextMode(GameMode.PLAYOFFS);
+            setCurrentMode(GameMode.TEAM_SELECT);
+        }
+    } else if (mode === GameMode.SEASON_HUB) {
+        // Season Mode -> Select Team first to start season
+        if (seasonState.gamesPlayed > 0) {
+             setCurrentMode(GameMode.SEASON_HUB);
+        } else {
+             setNextMode(GameMode.SEASON_HUB);
+             setCurrentMode(GameMode.TEAM_SELECT);
+        }
+    } else if (mode === GameMode.PRACTICE_SELECT) {
+        setNextMode(GameMode.PRACTICE_SELECT);
+        setCurrentMode(GameMode.TEAM_SELECT);
+    } else if (mode === GameMode.TEAM_SELECT) {
+        setNextMode(GameMode.GAME);
+        setCurrentMode(GameMode.TEAM_SELECT);
+    } else {
+        setCurrentMode(mode);
+    }
+    
+    // Reset transient flags
+    setIsBlacktopMode(false);
+    setIsPlayoffGame(false);
+    setIsCareerGame(false);
+    setIsCollegeGame(false);
+    setIsWagerGame(false);
+    setPracticePlayer(undefined);
+  };
+
+  const handleTeamSelected = (pTeam: Team, cTeam: Team) => {
+    setSelectedTeam(pTeam);
+    setOpponentTeam(cTeam);
+
+    if (nextMode === GameMode.PLAYOFFS) {
+        initPlayoffs(pTeam);
+    } else if (nextMode === GameMode.SEASON_HUB) {
+        // Initialize Season if new
+        if (seasonState.gamesPlayed === 0) {
+            setSeasonState({
+                userTeamId: pTeam.id,
+                wins: {},
+                losses: {},
+                gamesPlayed: 0
+            });
+        }
+        setCurrentMode(GameMode.SEASON_HUB);
+    } else {
+        setCurrentMode(GameMode.GAME);
+    }
+  };
+
+  const handlePracticePlayerSelected = (player: Player) => {
+      // Find the team this player belongs to for context (jersey colors)
+      const team = TEAMS.find(t => t.id === player.teamId) || TEAMS[0];
+      setSelectedTeam(team); 
+      setOpponentTeam(team); // Irrelevant in practice
+      setPracticePlayer(player);
+      setCurrentMode(GameMode.GAME);
+  };
 
   const initPlayoffs = (userTeam: Team) => {
-      // 4 Team Playoff Demo
-      const others = TEAMS.filter(t => t.id !== userTeam.id);
-      const shuffled = [...others].sort(() => 0.5 - Math.random());
-      
-      const match1: Matchup = {
-          id: 'semi_1',
-          round: 1,
-          t1: userTeam,
-          t2: shuffled[0],
-          winner: null,
-          score: ''
-      };
-
-      const match2: Matchup = {
-          id: 'semi_2',
-          round: 1,
-          t1: shuffled[1],
-          t2: shuffled[2],
-          winner: null,
-          score: ''
-      };
-
-      const final: Matchup = {
-          id: 'final',
-          round: 2,
-          t1: null,
-          t2: null,
-          winner: null,
-          score: ''
-      };
-
-      setPlayoffMatches([match1, match2, final]);
       setPlayoffUserTeam(userTeam);
+      
+      const otherTeams = TEAMS.filter(t => t.id !== userTeam.id).sort(() => 0.5 - Math.random());
+      const bracket: Matchup[] = [
+          { id: 'semi1', round: 1, t1: userTeam, t2: otherTeams[0], winner: null, score: '' },
+          { id: 'semi2', round: 1, t1: otherTeams[1], t2: otherTeams[2], winner: null, score: '' },
+          { id: 'final', round: 2, t1: null, t2: null, winner: null, score: '' }
+      ];
+      
+      setPlayoffMatches(bracket);
       setCurrentMode(GameMode.PLAYOFFS);
   };
 
-  // Helper to update matches immutably
-  const updateBracket = (matches: Matchup[], matchId: string, winner: Team, scoreStr: string): Matchup[] => {
-      const newMatches = matches.map(m => ({...m})); // Shallow copy objects
-      const match = newMatches.find(m => m.id === matchId);
-      if (!match) return matches;
+  const handlePlayoffGameStart = (matchId: string, t1: Team, t2: Team) => {
+      setSelectedTeam(t1);
+      setOpponentTeam(t2);
+      setCurrentMatchId(matchId);
+      setIsPlayoffGame(true);
+      setCurrentMode(GameMode.GAME);
+  };
 
-      match.winner = winner;
-      match.score = scoreStr;
+  const updateBracket = (matches: Matchup[], matchId: string, winner: Team, score: string): Matchup[] => {
+      const newMatches = matches.map(m => m.id === matchId ? { ...m, winner, score } : m);
+      
+      // Propagate to Finals
+      const semi1 = newMatches.find(m => m.id === 'semi1');
+      const semi2 = newMatches.find(m => m.id === 'semi2');
+      const final = newMatches.find(m => m.id === 'final');
 
-      // Propagate to next round (Simple 4-team logic)
-      if (match.round === 1) {
-          const finalMatch = newMatches.find(m => m.id === 'final');
-          if (finalMatch) {
-              // Assign to first empty slot, ensuring no duplicate team in case of weird state
-              if (!finalMatch.t1) finalMatch.t1 = winner;
-              else if (!finalMatch.t2 && finalMatch.t1.id !== winner.id) finalMatch.t2 = winner;
-          }
+      if (final) {
+          if (matchId === 'semi1') final.t1 = winner;
+          if (matchId === 'semi2') final.t2 = winner;
       }
       return newMatches;
   };
 
-  const advancePlayoff = (matchId: string, winner: Team, scoreStr: string) => {
-      setPlayoffMatches(prev => updateBracket(prev, matchId, winner, scoreStr));
-  };
-
-  const handleSimGame = (matchId: string) => {
+  const handlePlayoffSim = (matchId: string) => {
       const match = playoffMatches.find(m => m.id === matchId);
       if (!match || !match.t1 || !match.t2) return;
-
-      const r1 = Math.random() * match.t1.roster[0].rating;
-      const r2 = Math.random() * match.t2.roster[0].rating;
-      const winner = r1 > r2 ? match.t1 : match.t2;
-      const score = r1 > r2 ? "85-78" : "92-95";
       
-      advancePlayoff(matchId, winner, score);
+      // Simple 50/50 sim logic
+      const winner = Math.random() > 0.5 ? match.t1 : match.t2;
+      const score = `${80 + Math.floor(Math.random()*30)}-${80 + Math.floor(Math.random()*30)}`;
+      
+      const updatedMatches = updateBracket(playoffMatches, matchId, winner, score);
+      setPlayoffMatches(updatedMatches);
   };
 
-  const handleStartPlayoffGame = (matchId: string, t1: Team, t2: Team) => {
-      setCurrentMatchId(matchId);
+  const handleStartCareerGame = (save: CareerSave, isCollege: boolean = false, isWager: boolean = false, wagerAmt: number = 0) => {
+      setActiveCareerSave(save);
+      setIsCareerGame(true);
+      setIsCollegeGame(isCollege);
+      setIsWagerGame(isWager);
+      setWagerAmount(wagerAmt);
+      
+      // Determine Teams
+      if (isCollege) {
+          // Fake college teams
+          setSelectedTeam({ ...TEAMS[0], name: 'Tigers', primaryColor: '#f97316', secondaryColor: '#000' });
+          setOpponentTeam({ ...TEAMS[1], name: 'Crimson', primaryColor: '#dc2626', secondaryColor: '#fff' });
+      } else {
+          // NBA Game
+          const myTeam = TEAMS.find(t => t.id === save.teamId) || TEAMS[0];
+          // Determine opponent (random or fixed) - For simplicity, random distinct team
+          const oppTeam = TEAMS.filter(t => t.id !== save.teamId && t.id !== 'college').sort(() => 0.5 - Math.random())[0];
+          setSelectedTeam(myTeam);
+          setOpponentTeam(oppTeam);
+      }
+      
+      setCurrentMode(GameMode.GAME);
+  };
+
+  const handleBlacktopStart = (uTeam: Team, cTeam: Team) => {
+      setSelectedTeam(uTeam);
+      setOpponentTeam(cTeam);
+      setIsBlacktopMode(true);
+      setCurrentMode(GameMode.GAME);
+  };
+
+  const handleSeasonGameStart = (t1: Team, t2: Team) => {
       setSelectedTeam(t1);
       setOpponentTeam(t2);
       setCurrentMode(GameMode.GAME);
   };
 
-  const handleTeamSelected = (pTeam: Team, cpuTeam: Team) => {
-      if (nextMode === GameMode.PLAYOFFS) {
-           initPlayoffs(pTeam);
-           setNextMode(GameMode.GAME); 
-      } else {
-           // Apply Custom Jersey Colors if enabled
-           let finalTeam = pTeam;
-           if (globalInventory.includes('customize_jersey')) {
-               finalTeam = {
-                   ...pTeam,
-                   primaryColor: customJerseyColors.primary,
-                   secondaryColor: customJerseyColors.secondary
-               };
+  // --- GAME OVER LOGIC ---
+  const handleGameOver = (winner: 'player' | 'cpu', pScore: number, cScore: number, playerStats: any[]) => {
+      const isPractice = currentMode === GameMode.GAME && !isPlayoffGame && !isBlacktopMode && !isCareerGame && practicePlayer !== undefined;
+
+      // 1. Coins Reward
+      let coinsEarned = 0;
+      if (winner === 'player') coinsEarned += 30; // Win bonus
+      
+      if (!isWagerGame && !isPractice && !isCollegeGame) {
+          setGlobalCoins(prev => prev + coinsEarned);
+      }
+
+      // 2. Playoff Progression
+      if (isPlayoffGame && currentMatchId && playoffUserTeam) {
+          const match = playoffMatches.find(m => m.id === currentMatchId);
+          if (match) {
+              const winningTeam = winner === 'player' ? selectedTeam : opponentTeam;
+              let updatedMatches = updateBracket(playoffMatches, currentMatchId, winningTeam, `${pScore}-${cScore}`);
+              
+              // Auto-Sim other matches in round if user just finished
+              if (match.round === 1) {
+                  const otherSemiId = currentMatchId === 'semi1' ? 'semi2' : 'semi1';
+                  const otherSemi = updatedMatches.find(m => m.id === otherSemiId);
+                  if (otherSemi && !otherSemi.winner && otherSemi.t1 && otherSemi.t2) {
+                       const simWinner = Math.random() > 0.5 ? otherSemi.t1 : otherSemi.t2;
+                       updatedMatches = updateBracket(updatedMatches, otherSemiId, simWinner, "Simulated");
+                  }
+              }
+
+              setPlayoffMatches(updatedMatches);
+              setCurrentMode(GameMode.PLAYOFFS);
+              setCurrentMatchId(null);
+          }
+      } 
+      // 3. MyCareer Progression
+      else if (isCareerGame && activeCareerSave) {
+           let updatedSave = { ...activeCareerSave };
+           
+           // Stats & Salary
+           if (!isCollegeGame && !isWagerGame && activeCareerSave.phase === CareerPhase.NBA_SEASON) {
+               updatedSave.stats.gamesPlayed++;
+               updatedSave.stats.ppg = ((updatedSave.stats.ppg * (updatedSave.stats.gamesPlayed - 1)) + (playerStats[0]?.pts || 0)) / updatedSave.stats.gamesPlayed;
+               updatedSave.coins += 50 + (winner === 'player' ? 20 : 0); // Salary
            }
 
-           setSelectedTeam(finalTeam);
-           setOpponentTeam(cpuTeam);
-           setCurrentMode(GameMode.GAME);
+           // Wager Logic
+           if (isWagerGame) {
+               if (winner === 'player') {
+                   updatedSave.coins += (wagerAmount * 2); // Get wager back + profit
+                   alert(`You won the wager! +${wagerAmount} coins.`);
+               } else {
+                   alert("You lost the wager.");
+               }
+           }
+
+           // Phase Progression
+           if (activeCareerSave.phase === CareerPhase.COLLEGE_GAME) {
+               updatedSave.phase = CareerPhase.COACH_TALK;
+           } else if (activeCareerSave.phase === CareerPhase.SKILLS_CHALLENGE) {
+               // Reward based on performance
+               const myPoints = playerStats[0]?.pts || 0;
+               let grade = 'C';
+               if (myPoints > 15) grade = 'A+';
+               else if (myPoints > 10) grade = 'B';
+               
+               if (grade === 'A+') { updatedSave.coins += 200; updatedSave.playerData.rating += 2; }
+               if (grade === 'B') { updatedSave.coins += 100; updatedSave.playerData.rating += 1; }
+               
+               updatedSave.phase = CareerPhase.NBA_SEASON;
+               alert(`Skills Challenge Complete! Grade: ${grade}. Welcome to the NBA.`);
+           }
+
+           setCareerSaves(prev => prev.map(s => s.id === updatedSave.id ? updatedSave : s));
+           setActiveCareerSave(updatedSave);
+           setCurrentMode(GameMode.MY_CAREER_HUB);
+      }
+      // 4. Season Mode Update
+      else if (seasonState.gamesPlayed > 0 && (selectedTeam.id === seasonState.userTeamId || opponentTeam.id === seasonState.userTeamId)) {
+            const newState = { ...seasonState, gamesPlayed: seasonState.gamesPlayed + 1 };
+            if (winner === 'player') newState.wins[selectedTeam.id] = (newState.wins[selectedTeam.id] || 0) + 1;
+            else newState.losses[selectedTeam.id] = (newState.losses[selectedTeam.id] || 0) + 1;
+            
+            setSeasonState(newState);
+            setCurrentMode(GameMode.SEASON_HUB);
+      }
+      // 5. Standard Play Now / Blacktop
+      else {
+          setCurrentMode(GameMode.MENU);
       }
   };
 
-  const handleBuyItem = (item: string, cost: number) => {
-      if (globalCoins >= cost && !globalInventory.includes(item)) {
+  const handleBuyItem = (item: string, cost: number): boolean => {
+      if (globalCoins >= cost) {
           setGlobalCoins(prev => prev - cost);
           setGlobalInventory(prev => [...prev, item]);
           return true;
@@ -182,328 +337,92 @@ const App: React.FC = () => {
       return false;
   };
 
-  // Check active playoff status
-  const userLostPlayoffs = React.useMemo(() => {
-    if (!playoffUserTeam || playoffMatches.length === 0) return false;
-    // Check if any match with user was won by opponent
-    return playoffMatches.some(m => m.winner && (m.t1?.id === playoffUserTeam.id || m.t2?.id === playoffUserTeam.id) && m.winner.id !== playoffUserTeam.id);
-  }, [playoffMatches, playoffUserTeam]);
-
-  const hasActivePlayoff = playoffMatches.length > 0 && !!playoffUserTeam && !userLostPlayoffs;
-
-  const handleUpdateCareerSave = (updatedSave: CareerSave) => {
-      setCareerSaves(prev => {
-          const exists = prev.find(s => s.id === updatedSave.id);
-          if (exists) {
-              return prev.map(s => s.id === updatedSave.id ? updatedSave : s);
-          }
-          return [...prev, updatedSave];
-      });
-      setActiveCareerSave(updatedSave);
-  };
-
-  const handleStartCareerGame = (save: CareerSave, isCollege: boolean = false, isWager: boolean = false, wagerAmount: number = 0) => {
-       setActiveCareerSave(save);
-       
-       if (isWager) {
-           setCurrentWager(wagerAmount);
-           setIsBlacktopMode(true);
-           
-           // Create a weak High School Team
-           const hsTeam: Team = {
-               id: 'hs_opp', name: 'High Schoolers', city: 'Local', abbreviation: 'HS', primaryColor: '#555', secondaryColor: '#999',
-               roster: Array.from({length: 3}).map((_, i) => ({
-                   id: `hs_${i}`, name: `H.S. Kid ${i+1}`, number: `${i}`, position: Position.SG, 
-                   rating: 50 + Math.random()*10, speed: 60, shooting: 50, defense: 40, teamId: 'hs_opp'
-               }))
-           };
-
-           // User Team (3v3 format for street)
-           const userTeam = TEAMS.find(t => t.id === save.teamId) || TEAMS[0];
-           const streetRoster = [
-               { ...save.playerData, isUser: true, teamId: 'player' },
-               { ...userTeam.roster[1], teamId: 'player' },
-               { ...userTeam.roster[2], teamId: 'player' }
-           ];
-           
-           const streetTeam: Team = { ...userTeam, name: 'My Squad', roster: streetRoster };
-
-           setSelectedTeam(streetTeam);
-           setOpponentTeam(hsTeam);
-           setCurrentMode(GameMode.GAME);
-
-       } else if (isCollege) {
-           setIsBlacktopMode(false);
-           // Generic College Teams
-           const collegePlayerTeam: Team = {
-               id: 'college_user', name: 'Tigers', city: 'College', abbreviation: 'TIG', primaryColor: '#ffaa00', secondaryColor: '#000',
-               roster: [
-                   { ...save.playerData, isUser: true },
-                   { ...TEAMS[0].roster[1], id: 'c2', name: 'Teammate 1' },
-                   { ...TEAMS[0].roster[2], id: 'c3', name: 'Teammate 2' },
-                   { ...TEAMS[0].roster[3], id: 'c4', name: 'Teammate 3' },
-                   { ...TEAMS[0].roster[4], id: 'c5', name: 'Teammate 4' }
-               ]
-           };
-           const collegeCpuTeam: Team = {
-               id: 'college_cpu', name: 'Crimson', city: 'State', abbreviation: 'ST', primaryColor: '#aa0000', secondaryColor: '#fff',
-               roster: TEAMS[1].roster.map((p, i) => ({...p, id: `cpu_c_${i}`, name: `Opponent ${i+1}`}))
-           };
-           setSelectedTeam(collegePlayerTeam);
-           setOpponentTeam(collegeCpuTeam);
-           setCurrentMode(GameMode.GAME);
-       } else if (save.phase === CareerPhase.SKILLS_CHALLENGE) {
-           setIsBlacktopMode(false);
-           // ROOKIE SKILLS CHALLENGE (5v5 Showcase)
-           const rookieTeam: Team = {
-               id: 'rookie_user', name: 'Rookies', city: 'Draft', abbreviation: 'RKS', primaryColor: '#00BFFF', secondaryColor: '#FFFFFF',
-               roster: [
-                   { ...save.playerData, isUser: true },
-                   { ...TEAMS[2].roster[1], id: 'r2', name: 'Rookie Guard' },
-                   { ...TEAMS[2].roster[2], id: 'r3', name: 'Rookie Wing' },
-                   { ...TEAMS[2].roster[3], id: 'r4', name: 'Rookie Big' },
-                   { ...TEAMS[2].roster[4], id: 'r5', name: 'Rookie Center' }
-               ]
-           };
-           const prospectsTeam: Team = {
-               id: 'rookie_cpu', name: 'Prospects', city: 'Draft', abbreviation: 'PRS', primaryColor: '#FF4500', secondaryColor: '#111111',
-               roster: TEAMS[3].roster.map((p, i) => ({...p, id: `cpu_r_${i}`, name: `Prospect ${i+1}`, rating: 70}))
-           };
-           
-           setSelectedTeam(rookieTeam);
-           setOpponentTeam(prospectsTeam);
-           setCurrentMode(GameMode.GAME);
-       } else {
-           setIsBlacktopMode(false);
-           // NBA Game
-           const userTeam = TEAMS.find(t => t.id === save.teamId) || TEAMS[0];
-           // Inject user player into roster
-           const rosterWithUser = [...userTeam.roster];
-           // Ensure the player data matches the save, forcing isUser and correct ID
-           rosterWithUser[0] = { ...save.playerData, isUser: true, teamId: 'player', id: save.playerData.id }; 
-           
-           const actualUserTeam = { ...userTeam, roster: rosterWithUser };
-           const opponent = TEAMS.find(t => t.id !== userTeam.id) || TEAMS[1];
-           
-           setSelectedTeam(actualUserTeam);
-           setOpponentTeam(opponent);
-           setCurrentMode(GameMode.GAME);
-       }
-  };
+  // --- RENDER ---
+  const isPractice = currentMode === GameMode.GAME && !isPlayoffGame && !isBlacktopMode && !isCareerGame && practicePlayer !== undefined;
 
   return (
-    <div className="w-screen h-screen bg-black overflow-hidden text-white font-sans select-none">
+    <>
       {currentMode === GameMode.MENU && (
-          <MainMenu 
-              globalCoins={globalCoins}
-              inventory={globalInventory}
-              onBuyItem={handleBuyItem}
-              onSetJerseyColors={setCustomJerseyColors}
-              customJerseyColors={customJerseyColors}
-              onSelectMode={(mode) => {
-                  if (mode === GameMode.PLAYOFFS) {
-                      if (hasActivePlayoff) {
-                          // Resume active playoff
-                          if (playoffUserTeam) setSelectedTeam(playoffUserTeam);
-                          setCurrentMode(GameMode.PLAYOFFS);
-                      } else {
-                          // Start new
-                          setNextMode(GameMode.PLAYOFFS);
-                          setIsBlacktopMode(false);
-                          setCurrentMode(GameMode.TEAM_SELECT);
-                      }
-                  } else if (mode === GameMode.BLACKTOP_SELECT) {
-                      setIsBlacktopMode(true);
-                      setCurrentMode(GameMode.BLACKTOP_SELECT); // Go to new Setup
-                  } else if (mode === GameMode.PRACTICE_SELECT) {
-                      setNextMode(GameMode.PRACTICE_SELECT);
-                      setIsBlacktopMode(false);
-                      setCurrentMode(GameMode.TEAM_SELECT);
-                  } else if (mode === GameMode.MY_CAREER_HUB) {
-                      setCurrentMode(GameMode.MY_CAREER_HUB);
-                  } else {
-                      setNextMode(GameMode.GAME);
-                      setIsBlacktopMode(false);
-                      setCurrentMode(GameMode.TEAM_SELECT);
-                  }
-              }} 
-              hasActivePlayoff={hasActivePlayoff}
+        <MainMenu 
+           onSelectMode={handleModeSelect} 
+           hasActivePlayoff={playoffMatches.length > 0 && !!playoffMatches.find(m=>m.round===2)?.t1} 
+           globalCoins={globalCoins}
+           inventory={globalInventory}
+           onBuyItem={handleBuyItem}
+           onSetJerseyColors={setCustomJerseyColors}
+           customJerseyColors={customJerseyColors}
+        />
+      )}
+
+      {currentMode === GameMode.TEAM_SELECT && (
+        <TeamSelect 
+            onTeamSelected={handleTeamSelected} 
+            onPlayerSelected={handlePracticePlayerSelected}
+            onBack={() => setCurrentMode(GameMode.MENU)} 
+            isPractice={nextMode === GameMode.PRACTICE_SELECT}
+        />
+      )}
+
+      {currentMode === GameMode.GAME && (
+        <GameEngine 
+          playerTeam={selectedTeam} 
+          cpuTeam={opponentTeam} 
+          onGameOver={handleGameOver} 
+          onExit={() => {
+              if (isCareerGame) setCurrentMode(GameMode.MY_CAREER_HUB);
+              else if (isPlayoffGame) setCurrentMode(GameMode.PLAYOFFS);
+              else if (seasonState.gamesPlayed > 0 && selectedTeam.id === seasonState.userTeamId) setCurrentMode(GameMode.SEASON_HUB);
+              else setCurrentMode(GameMode.MENU);
+          }}
+          isBlacktop={isBlacktopMode}
+          isPlayoff={isPlayoffGame}
+          isPractice={isPractice}
+          isCollege={isCollegeGame}
+          practicePlayer={practicePlayer}
+          lockedPlayerId={isCareerGame && !isCollegeGame ? activeCareerSave?.playerData.id : undefined}
+          activeBoosts={globalInventory}
+        />
+      )}
+
+      {currentMode === GameMode.PLAYOFFS && (
+          <PlayoffBracket 
+             matches={playoffMatches} 
+             onBack={() => setCurrentMode(GameMode.MENU)}
+             onPlayGame={handlePlayoffGameStart}
+             onSimGame={handlePlayoffSim}
+             userTeamId={playoffUserTeam?.id || ''}
           />
       )}
 
       {currentMode === GameMode.MY_CAREER_HUB && (
           <MyCareer 
-             saves={careerSaves}
-             onUpdateSave={handleUpdateCareerSave}
+             saves={careerSaves} 
+             onUpdateSave={(s) => {
+                 setCareerSaves(prev => prev.map(save => save.id === s.id ? s : save));
+                 if(activeCareerSave?.id === s.id) setActiveCareerSave(s);
+             }}
              onDeleteSave={(id) => setCareerSaves(prev => prev.filter(s => s.id !== id))}
              onPlayGame={handleStartCareerGame}
              onBack={() => setCurrentMode(GameMode.MENU)}
           />
       )}
 
-      {currentMode === GameMode.TEAM_SELECT && (
-          <TeamSelect 
-            onTeamSelected={handleTeamSelected} 
-            onPlayerSelected={(player) => {
-                setPracticePlayer(player);
-                setCurrentMode(GameMode.GAME);
-            }}
-            onBack={() => setCurrentMode(GameMode.MENU)} 
-            isPractice={nextMode === GameMode.PRACTICE_SELECT}
-          />
-      )}
-
       {currentMode === GameMode.BLACKTOP_SELECT && (
           <BlacktopSetup 
-              onBack={() => setCurrentMode(GameMode.MENU)}
-              onGameStart={(uTeam, cTeam) => {
-                  setSelectedTeam(uTeam);
-                  setOpponentTeam(cTeam);
-                  setCurrentMode(GameMode.GAME);
-              }}
+             onGameStart={handleBlacktopStart}
+             onBack={() => setCurrentMode(GameMode.MENU)}
           />
       )}
 
-      {currentMode === GameMode.GAME && (
-          <GameEngine 
-            playerTeam={selectedTeam} 
-            cpuTeam={opponentTeam} 
-            isPlayoff={!!currentMatchId}
-            isPractice={nextMode === GameMode.PRACTICE_SELECT}
-            isCollege={activeCareerSave?.phase === CareerPhase.COLLEGE_GAME}
-            practicePlayer={practicePlayer}
-            lockedPlayerId={activeCareerSave ? activeCareerSave.playerData.id : undefined}
-            activeBoosts={globalInventory} // Pass inventory to apply boosts
-            onGameOver={(winner, s1, s2, playerStats) => {
-              // --- MY CAREER LOGIC ---
-              if (activeCareerSave) {
-                  // Wager Match Logic
-                  if (currentWager > 0) {
-                      if (winner === 'player') {
-                          alert(`You hustled the high schoolers!\nWon: ${currentWager * 2} Coins`);
-                          const updated = { ...activeCareerSave, coins: activeCareerSave.coins + (currentWager * 2) };
-                          handleUpdateCareerSave(updated);
-                      } else {
-                          alert(`You lost to the kids... say goodbye to your ${currentWager} coins.`);
-                          // Coins already deducted at start
-                      }
-                      setCurrentWager(0);
-                      setCurrentMode(GameMode.MY_CAREER_HUB);
-                      return;
-                  }
-
-                  if (activeCareerSave.phase === CareerPhase.COLLEGE_GAME) {
-                      const updated = { ...activeCareerSave, phase: CareerPhase.COACH_TALK };
-                      handleUpdateCareerSave(updated);
-                      setCurrentMode(GameMode.MY_CAREER_HUB);
-                  } else if (activeCareerSave.phase === CareerPhase.SKILLS_CHALLENGE) {
-                      // Handle Skills Challenge Results
-                      let pScore = 0;
-                      let pGrade = 'C';
-                      let rewardCoins = 50;
-                      let ratingBoost = 0;
-                      
-                      if (playerStats && playerStats.length > 0) {
-                           const stats = playerStats[0];
-                           pScore = (stats.pts * 2) + (stats.reb * 2) + (stats.stl * 3);
-                           
-                           if (pScore > 30) { pGrade = 'A+'; rewardCoins = 300; ratingBoost = 3; }
-                           else if (pScore > 20) { pGrade = 'B'; rewardCoins = 150; ratingBoost = 2; }
-                           else if (pScore > 10) { pGrade = 'C'; rewardCoins = 75; ratingBoost = 1; }
-                           else { pGrade = 'D'; rewardCoins = 25; ratingBoost = 0; }
-                      }
-
-                      alert(`Rookie Showcase Complete!\nYour Grade: ${pGrade}\nReward: ${rewardCoins} Coins\nRating Boost: +${ratingBoost}`);
-                      
-                      const updated = { 
-                          ...activeCareerSave, 
-                          phase: CareerPhase.NBA_SEASON,
-                          coins: activeCareerSave.coins + rewardCoins,
-                          playerData: {
-                              ...activeCareerSave.playerData,
-                              rating: activeCareerSave.playerData.rating + ratingBoost
-                          }
-                      };
-                      handleUpdateCareerSave(updated);
-                      setCurrentMode(GameMode.MY_CAREER_HUB);
-
-                  } else {
-                      // NBA Season - Earn Coins logic specific to Career
-                      let earnedCoins = 0;
-                      if (playerStats && playerStats.length > 0) {
-                           const stats = playerStats[0]; 
-                           earnedCoins = (stats.pts * 2) + (stats.reb * 3) + (stats.stl * 5);
-                      }
-                      if (earnedCoins > 0) {
-                          alert(`Great Game! You earned ${earnedCoins} career coins.`);
-                          const updated = { ...activeCareerSave, coins: activeCareerSave.coins + earnedCoins };
-                          handleUpdateCareerSave(updated);
-                      }
-                      setCurrentMode(GameMode.MY_CAREER_HUB);
-                  }
-                  return;
-              }
-
-              // --- PLAY NOW / BLACKTOP / PLAYOFF LOGIC ---
-
-              // 1. Calculate Global Coins (Coins for WIN only, no performance punishment)
-              let coinMsg = "";
-              if (!currentMatchId) { // Only for Play Now / Blacktop
-                  if (winner === 'player') {
-                      setGlobalCoins(c => c + 30);
-                      coinMsg += "You won! (+30 Coins).";
-                  }
-                  
-                  if (coinMsg) alert(coinMsg);
-              }
-
-
-              // 2. Playoff Progression
-              if (currentMatchId) {
-                  const winningTeam = winner === 'player' ? selectedTeam : opponentTeam;
-                  const scoreStr = `${s1}-${s2}`;
-
-                  setPlayoffMatches(prev => {
-                      let updated = updateBracket(prev, currentMatchId, winningTeam, scoreStr);
-                      const otherSemis = updated.filter(m => m.round === 1 && m.id !== currentMatchId && !m.winner);
-                      otherSemis.forEach(om => {
-                           if (om.t1 && om.t2) {
-                               const r1 = Math.random() * om.t1.roster[0].rating;
-                               const r2 = Math.random() * om.t2.roster[0].rating;
-                               const simWinner = r1 > r2 ? om.t1 : om.t2;
-                               const simScore = r1 > r2 ? "88-82" : "95-98";
-                               updated = updateBracket(updated, om.id, simWinner, simScore);
-                           }
-                      });
-                      return updated;
-                  });
-
-                  setCurrentMatchId(null);
-                  setCurrentMode(GameMode.PLAYOFFS);
-              } else {
-                  // Standard Play Now
-                  setCurrentMode(GameMode.MENU);
-              }
-            }}
-            onExit={() => {
-                if(currentMatchId) setCurrentMode(GameMode.PLAYOFFS);
-                else if (activeCareerSave) setCurrentMode(GameMode.MY_CAREER_HUB);
-                else setCurrentMode(GameMode.MENU);
-            }}
-            isBlacktop={isBlacktopMode}
+      {currentMode === GameMode.SEASON_HUB && (
+          <SeasonMode 
+             seasonState={seasonState}
+             onUpdateSeason={setSeasonState}
+             onPlayGame={handleSeasonGameStart}
+             onBack={() => setCurrentMode(GameMode.MENU)}
           />
       )}
-
-      {currentMode === GameMode.PLAYOFFS && (
-          <PlayoffBracket 
-             matches={playoffMatches}
-             userTeamId={selectedTeam.id}
-             onPlayGame={handleStartPlayoffGame}
-             onSimGame={handleSimGame}
-             onBack={() => setCurrentMode(GameMode.MENU)} 
-          />
-      )}
-    </div>
+    </>
   );
 };
 

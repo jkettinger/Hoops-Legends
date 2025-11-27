@@ -219,6 +219,15 @@ export const MyCareer: React.FC<MyCareerProps> = ({ saves, onUpdateSave, onDelet
 
         if (action === 'date') {
             if (activeSave.lifestyle.hasWife) return;
+            
+            // Partner Naming Check
+            let partner = activeSave.lifestyle.partnerName;
+            if (!partner) {
+                const input = prompt("Who do you want to date?", "Jennifer");
+                if (!input) return; // User cancelled
+                partner = input;
+            }
+
             if (activeSave.coins >= 100) {
                  const success = Math.random() > 0.4;
                  let newProgress = activeSave.lifestyle.relationshipProgress + (success ? 20 : 5);
@@ -227,15 +236,20 @@ export const MyCareer: React.FC<MyCareerProps> = ({ saves, onUpdateSave, onDelet
                  if (newProgress >= 100) {
                      newProgress = 100;
                      hasWife = true;
-                     alert("She said YES! You got married.");
+                     alert(`She said YES! You and ${partner} got married.`);
                  } else {
-                     alert(success ? "Date went great!" : "Date was okay...");
+                     alert(success ? `Date with ${partner} went great!` : `Date with ${partner} was okay...`);
                  }
 
                  const updated = {
                      ...activeSave,
                      coins: activeSave.coins - 100,
-                     lifestyle: { ...activeSave.lifestyle, relationshipProgress: newProgress, hasWife }
+                     lifestyle: { 
+                         ...activeSave.lifestyle, 
+                         relationshipProgress: newProgress, 
+                         hasWife,
+                         partnerName: partner
+                    }
                  };
                  onUpdateSave(updated);
                  setActiveSave(updated);
@@ -570,7 +584,7 @@ export const MyCareer: React.FC<MyCareerProps> = ({ saves, onUpdateSave, onDelet
                                  {/* House Upgrade Section */}
                                  <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                                      <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Home size={20}/> Housing</h3>
-                                     <p className="text-sm text-gray-400 mb-4">Current: <span className="text-white font-bold">{life.houseLevel === 0 ? "Homeless" : (life.houseLevel === 1 ? "Studio Apartment" : (life.houseLevel === 2 ? "Luxury Penthouse" : "Mega Mansion"))}</span></p>
+                                     <p className="text-sm text-gray-400 mb-4">Current: <span className="text-white font-bold">{life.houseLevel === 0 ? "Streets" : (life.houseLevel === 1 ? "Apartment" : (life.houseLevel === 2 ? "Penthouse" : "Mansion"))}</span></p>
                                      <div className="space-y-2">
                                          {life.houseLevel < 1 && <button onClick={() => buyHouse(1, 1000)} className="w-full p-2 bg-slate-700 hover:bg-green-600 rounded text-sm text-left">Buy Apartment (1000c)</button>}
                                          {life.houseLevel < 2 && life.houseLevel >= 1 && <button onClick={() => buyHouse(2, 5000)} className="w-full p-2 bg-slate-700 hover:bg-green-600 rounded text-sm text-left">Buy Penthouse (5000c)</button>}
@@ -597,7 +611,7 @@ export const MyCareer: React.FC<MyCareerProps> = ({ saves, onUpdateSave, onDelet
                                               <span className="text-xs text-gray-400">{life.hasWife ? "Married" : "Single"}</span>
                                           </div>
                                           {life.hasWife ? (
-                                              <div className="text-sm text-green-400 text-center">Happily Married!</div>
+                                              <div className="text-sm text-green-400 text-center">Happily Married to {life.partnerName || 'your partner'}!</div>
                                           ) : (
                                               <>
                                                  <div className="w-full bg-black h-2 rounded-full overflow-hidden mb-2">
