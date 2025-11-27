@@ -190,7 +190,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({
            announce(`Welcome to ${isBlacktop ? 'the Blacktop' : 'the Arena'}!`);
         }
     }
-  }, [playerTeam, cpuTeam]); // Re-run if teams change size
+  }, [playerTeam, cpuTeam, lockedPlayerId]); // Re-run if teams change or locked player ID updates
 
   const switchSides = () => {
       if (lockedPlayerId) {
@@ -322,9 +322,17 @@ export const GameEngine: React.FC<GameEngineProps> = ({
         else userPlayer = players.find(p => p.teamId === 'player');
         
         if (userPlayer) userPlayer.isUser = true;
+        else {
+            // Absolute Fallback: Force control of first player to prevent crash
+            userPlayer = players[0];
+            if (userPlayer) {
+                userPlayer.isUser = true;
+                // announce("Auto-assigned player control.", 'low');
+            }
+        }
       }
       
-      if (!userPlayer) return; // Should not happen
+      if (!userPlayer) return; // Should not happen with fallback
 
       const userTeamId = userPlayer.teamId;
       if (userPlayer && userPlayer.cooldown > 0) userPlayer.cooldown--;

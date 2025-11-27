@@ -39,6 +39,7 @@ const App: React.FC = () => {
   const [opponentTeam, setOpponentTeam] = useState<Team>(TEAMS[1]);
   const [isBlacktopMode, setIsBlacktopMode] = useState(false);
   const [isPlayoffGame, setIsPlayoffGame] = useState(false);
+  const [gameLockedPlayerId, setGameLockedPlayerId] = useState<string | undefined>(undefined);
   
   // Global Economy & Inventory (Persisted)
   const [globalCoins, setGlobalCoins] = useState(() => loadState('hoops_coins', 100));
@@ -118,6 +119,7 @@ const App: React.FC = () => {
     setIsCollegeGame(false);
     setIsWagerGame(false);
     setPracticePlayer(undefined);
+    setGameLockedPlayerId(undefined);
   };
 
   const handleTeamSelected = (pTeam: Team, cTeam: Team) => {
@@ -207,17 +209,52 @@ const App: React.FC = () => {
       setIsWagerGame(isWager);
       setWagerAmount(wagerAmt);
       
+      // Explicitly set the locked player ID from the save object to ensure sync
+      if (!isCollege) {
+          setGameLockedPlayerId(save.playerData.id);
+      } else {
+          setGameLockedPlayerId(undefined);
+      }
+      
       // Determine Teams
       if (isCollege) {
           // Fake college teams
           setSelectedTeam({ ...TEAMS[0], name: 'Tigers', primaryColor: '#f97316', secondaryColor: '#000' });
           setOpponentTeam({ ...TEAMS[1], name: 'Crimson', primaryColor: '#dc2626', secondaryColor: '#fff' });
       } else {
-          // NBA Game
-          const myTeam = TEAMS.find(t => t.id === save.teamId) || TEAMS[0];
-          // Determine opponent (random or fixed) - For simplicity, random distinct team
-          const oppTeam = TEAMS.filter(t => t.id !== save.teamId && t.id !== 'college').sort(() => 0.5 - Math.random())[0];
-          setSelectedTeam(myTeam);
+          // NBA or Wager Game
+          const originalTeam = TEAMS.find(t => t.id === save.teamId) || TEAMS[0];
+          
+          // IMPORTANT: Inject MyPlayer into the roster so GameEngine can find the lockedPlayerId
+          // We create a copy of the roster and replace the player at the same position
+          let myTeamRoster = [...originalTeam.roster];
+          const myPlayer = { ...save.playerData, teamId: originalTeam.id, isUser: true };
+          
+          // Find index of player with same position to replace
+          const posIndex = myTeamRoster.findIndex(p => p.position === myPlayer.position);
+          if (posIndex >= 0) {
+              myTeamRoster[posIndex] = myPlayer;
+          } else {
+              // Fallback: replace first player if position not found
+              myTeamRoster[0] = myPlayer;
+          }
+
+          const myTeamWithPlayer = { ...originalTeam, roster: myTeamRoster };
+
+          let oppTeam: Team;
+          if (isWager) {
+              // Generic Opponent for Wager
+               oppTeam = { 
+                   ...TEAMS[1], 
+                   name: 'Street Ballers', 
+                   roster: TEAMS[1].roster.map(p => ({...p, name: 'Local Hooper', rating: 70}))
+               };
+          } else {
+               // Random NBA Opponent
+               oppTeam = TEAMS.filter(t => t.id !== save.teamId && t.id !== 'college').sort(() => 0.5 - Math.random())[0];
+          }
+
+          setSelectedTeam(myTeamWithPlayer);
           setOpponentTeam(oppTeam);
       }
       
@@ -379,7 +416,7 @@ const App: React.FC = () => {
           isPractice={isPractice}
           isCollege={isCollegeGame}
           practicePlayer={practicePlayer}
-          lockedPlayerId={isCareerGame && !isCollegeGame ? activeCareerSave?.playerData.id : undefined}
+          lockedPlayerId={gameLockedPlayerId}
           activeBoosts={globalInventory}
         />
       )}
